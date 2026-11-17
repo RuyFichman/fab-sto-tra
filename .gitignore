@@ -1,0 +1,20 @@
+# ambiente
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# dados baixados (grandes; uso pessoal)
+data/
+
+# conta simulada (pessoal)
+paper/
+
+# resultados são regeneráveis; o registro de hipóteses não é
+results/*
+!results/hypotheses.csv
+
+# local
+.claude/
+.streamlit/secrets.toml
+.env

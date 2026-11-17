@@ -1,0 +1,189 @@
+# Configuração do laboratório quantitativo (uso pessoal, apenas simulação).
+# Todos os parâmetros de estratégia são HIPÓTESES a testar, não regras comprovadas.
+
+[data]
+start = "2011-01-01"          # inclui período de aquecimento (SMA200, liquidez)
+benchmark = "BOVA11"
+
+[universe]
+top_n = 40                    # N mais líquidas conhecidas em cada data
+candidate_top_n = 60          # entra na base todo papel que já esteve entre as N mais líquidas
+liquidity_window = 60         # mediana do volume financeiro em N pregões
+min_history = 252             # pregões mínimos antes de entrar no universo
+
+[periods]
+# Desenvolvimento: livre para pesquisar. Holdout: só com --holdout, e o ideal
+# é olhar UMA vez, depois de congelar a estratégia.
+dev_start = "2015-01-01"
+dev_end = "2022-12-31"
+holdout_start = "2023-01-01"
+
+[costs]
+fee_bps = 3.0                 # emolumentos + liquidação B3 (~0,03%) por lado
+slippage_bps = 10.0           # meio spread por lado sobre o preço de execução
+impact_y = 1.0                # impacto: y x volatilidade diária x raiz(ordem / volume diário)
+max_participation = 0.01      # ordem limitada a 1% do volume financeiro mediano
+brokerage = 0.0               # corretagem fixa por ordem (R$)
+
+[tax]
+enabled = true                # IR descontado do caixa no mês seguinte ao ganho
+rate = 0.15                   # operações comuns (swing trade)
+exempt_monthly_sales = 20000  # ganho isento se as vendas do mês não passarem disso
+
+[alerts]
+windows_toast = true
+telegram_token = ""           # opcional; também aceita a variável QUANTLAB_TELEGRAM_TOKEN
+telegram_chat_id = ""         # opcional; também aceita QUANTLAB_TELEGRAM_CHAT_ID
+
+[risk]
+initial_capital = 100000.0
+risk_per_trade = 0.005        # 0,5% do patrimônio arriscado por operação
+max_position_pct = 0.15       # teto por posição
+max_exposure = 1.0            # sem alavancagem
+max_positions = 10
+lot_size = 1                  # 1 = fracionário; 100 = lote padrão
+max_drawdown_halt = 0.20      # kill switch (paper): bloqueia novas entradas
+max_stale_days = 5            # kill switch (paper): dados defasados
+
+[strategy.breakout]
+entry_lookback = 20           # rompimento da máxima de N pregões
+exit_lookback = 10            # saída: fechamento abaixo da mínima de N pregões
+trend_sma = 200
+atr_window = 14
+atr_stop_mult = 2.0
+max_hold_days = 0             # 0 = sem limite
+
+[strategy.breakout_regime]
+# Hipótese: rompimentos falham mais quando o mercado como um todo está em queda.
+# Igual ao breakout, mas só abre posições com o BOVA11 acima da média de 200 pregões.
+# Motivada pelas perdas de 2021-2022 no próprio período de desenvolvimento,
+# portanto o resultado em dev é otimista por construção.
+# RESULTADO (16/11/2026, base oficial B3): REJEITADA. Em dev o Sharpe caiu de
+# -0,07 para -0,39 e o CAGR de 6,3% para 1,7%. O filtro corta as recuperações
+# após quedas (2016, 2020), onde o breakout mais ganhava.
+base = "breakout"
+regime_sma = 200
+entry_lookback = 20
+exit_lookback = 10
+trend_sma = 200
+atr_window = 14
+atr_stop_mult = 2.0
+max_hold_days = 0
+
+[strategy.momentum]
+# Hipótese: momentum relativo (Jegadeesh e Titman). No primeiro pregão de cada
+# mês, compra as top_k do universo pelo retorno de 12 meses excluindo o último;
+# vende as que saírem das top_k x exit_rank_mult. Parâmetros fixados antes de
+# rodar; os valores são os convencionais da literatura.
+# RESULTADO (16/11/2026): sem vantagem. Em dev, CAGR 6,1% contra 8,6% do CDI
+# (Sharpe -0,04); no walk-forward, 3,4% ao ano contra 6,4% do CDI.
+lookback = 252
+skip = 21
+top_k = 10
+exit_rank_mult = 2.0
+atr_window = 14
+atr_stop_mult = 5.0           # stop largo, só para catástrofes
+max_hold_days = 0
+risk = { risk_per_trade = 0.012, max_position_pct = 0.10 }
+
+[strategy.momentum_abs]
+# Hipótese: momentum relativo sofre quando o mercado inteiro cai, porque compra
+# "as menos piores". Exigir que o papel também tenha rendido mais que o CDI na
+# mesma janela deixa a carteira em caixa nesses períodos. Resto igual ao momentum.
+# RESULTADO (16/11/2026): sem vantagem. Em dev quase igual ao momentum (CAGR 6,4%,
+# Sharpe -0,02); no walk-forward piorou (0,1% ao ano contra 3,4%). O filtro quase
+# não atua: os 10 melhores do ranking raramente rendem menos que o CDI.
+base = "momentum"
+abs_filter = true
+lookback = 252
+skip = 21
+top_k = 10
+exit_rank_mult = 2.0
+atr_window = 14
+atr_stop_mult = 5.0
+max_hold_days = 0
+risk = { risk_per_trade = 0.012, max_position_pct = 0.10 }
+
+[strategy.breakout_cdi]
+# Hipótese: o breakout fica ~40% do tempo em caixa, e caixa a 0% perde para um
+# benchmark que rende CDI. Aqui o caixa parado rende 80% do CDI (aproxima um
+# fundo DI ou Tesouro Selic já líquido de IR). Sinais idênticos aos do breakout.
+# RESULTADO (16/11/2026): melhor configuração até aqui, ainda sem evidência. CAGR
+# de 6,3% para 8,9% (CDI após IR: 7,6%; BOVA11 após IR: 9,6%), Sharpe 0,09,
+# drawdown -20%. O ganho vem do rendimento do caixa, não dos sinais. DSR 1%.
+base = "breakout"
+entry_lookback = 20
+exit_lookback = 10
+trend_sma = 200
+atr_window = 14
+atr_stop_mult = 2.0
+max_hold_days = 0
+risk = { cash_cdi = 0.8 }
+
+[strategy.momentum_abs_cdi]
+# Combinação das duas ideias: momentum com filtro absoluto e caixa a 80% do CDI.
+# RESULTADO (16/11/2026): CAGR 7,8%, Sharpe 0,05, drawdown -31,5%. Sem evidência.
+base = "momentum"
+abs_filter = true
+lookback = 252
+skip = 21
+top_k = 10
+exit_rank_mult = 2.0
+atr_window = 14
+atr_stop_mult = 5.0
+max_hold_days = 0
+risk = { risk_per_trade = 0.012, max_position_pct = 0.10, cash_cdi = 0.8 }
+
+[strategy.pairs]
+# Hipótese: pares de papéis que andaram juntos voltam a convergir depois de se
+# afastarem (método da distância de Gatev et al., parâmetros do artigo).
+# Simulação separada, comprada e vendida, com aluguel; ver quantlab/pairs.py.
+# RESULTADO (16/11/2026): REJEITADA. CAGR -0,5%, Sharpe -0,89; 417 operações com
+# expectativa de -0,03% (57% de acerto, payoff 0,75). Os custos das duas pernas
+# e o aluguel consomem toda a convergência.
+engine = "pairs"
+formation = 252
+trading = 126
+n_pairs = 20
+entry_z = 2.0
+borrow_rate = 0.03            # aluguel anual da ponta vendida
+
+[strategy.meanrev]
+trend_sma = 200
+rsi_window = 2
+rsi_entry = 10.0              # RSI(2) abaixo disso em tendência de alta
+exit_sma = 5                  # saída: fechamento acima da SMA curta
+atr_window = 14
+atr_stop_mult = 3.0
+max_hold_days = 10
+
+[walkforward]
+train_years = 3
+test_years = 1
+
+[walkforward.grid.breakout]
+entry_lookback = [20, 55]
+exit_lookback = [10, 20]
+atr_stop_mult = [2.0, 3.0]
+
+[walkforward.grid.breakout_regime]
+entry_lookback = [20, 55]
+exit_lookback = [10, 20]
+atr_stop_mult = [2.0, 3.0]
+
+[walkforward.grid.momentum]
+lookback = [126, 252]
+top_k = [5, 10]
+
+[walkforward.grid.momentum_abs]
+lookback = [126, 252]
+top_k = [5, 10]
+
+[walkforward.grid.meanrev]
+rsi_entry = [5.0, 10.0]
+exit_sma = [5, 10]
+atr_stop_mult = [2.0, 3.0]
+
+[paper]
+strategy = "breakout"
+start = "2026-11-01"
